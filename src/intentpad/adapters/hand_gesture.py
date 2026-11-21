@@ -2,10 +2,24 @@ import cv2
 import numpy as np
 import logging
 import time
+import urllib.request
+from pathlib import Path
 from typing import Optional, Tuple, Dict, Any
 from .base import InputAdapter, AdapterFrame
 
 logger = logging.getLogger(__name__)
+
+MODEL_URL = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task"
+MODEL_PATH = Path(__file__).resolve().parents[3] / "models" / "hand_landmarker.task"
+
+HAND_CONNECTIONS = [
+    (0, 1), (1, 2), (2, 3), (3, 4),
+    (0, 5), (5, 6), (6, 7), (7, 8),
+    (5, 9), (9, 10), (10, 11), (11, 12),
+    (9, 13), (13, 14), (14, 15), (15, 16),
+    (13, 17), (17, 18), (18, 19), (19, 20),
+    (0, 17), (0, 5), (9, 13)
+]
 
 
 class HandGestureAdapter(InputAdapter):
@@ -13,34 +27,44 @@ class HandGestureAdapter(InputAdapter):
         config = config or {}
         super().__init__(config)
         self._cap = None
-        self._hands = None
-        self._mp_hands = None
-        self._mp_drawing = None
-        self._mp_drawing_styles = None
+        self._landmarker = None
         self._frame_width = config.get("width", 640)
         self._frame_height = config.get("height", 480)
         self._fps = config.get("fps", 30)
-        self._min_detection_confidence = config.get("min_detection_confidence", 0.7)
+        self._min_detection_confidence = config.get("min_detection_confidence", 0.6)
         self._min_tracking_confidence = config.get("min_tracking_confidence", 0.5)
         self._max_num_hands = config.get("max_num_hands", 1)
         self._last_frame_time = 0
         self._frame_interval = 1.0 / self._fps
+        self._frame_timestamp_ms = 0
+
+    def _ensure_model(self) -> None:
+        if not MODEL_PATH.exists():
+            logger.info(f"Downloading hand landmarker model from {MODEL_URL}")
+            MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
+            urllib.request.urlretrieve(MODEL_URL, MODEL_PATH)
+            logger.info(f"Model downloaded to {MODEL_PATH}")
 
     def start(self) -> None:
         try:
+            from mediapipe.tasks import python
+            from mediapipe.tasks.python import vision
             import mediapipe as mp
-            self._mp_hands = mp.solutions.hands
-            self._mp_drawing = mp.solutions.drawing_utils
-            self._mp_drawing_styles = mp.solutions.drawing_styles
-            self._hands = self._mp_hands.Hands(
-                static_image_mode=False,
-                max_num_hands=self._max_num_hands,
-                min_detection_confidence=self._min_detection_confidence,
-                min_tracking_confidence=self._min_tracking_confidence,
-                model_complexity=1,
-            )
         except ImportError:
             raise RuntimeError("mediapipe not installed. Install with: pip install mediapipe")
+
+        self._ensure_model()
+
+        base_options = python.BaseOptions(model_asset_path=str(MODEL_PATH))
+        options = vision.HandLandmarkerOptions(
+            base_options=base_options,
+            running_mode=vision.RunningMode.VIDEO,
+            num_hands=self._max_num_hands,
+            min_hand_detection_confidence=self._min_detection_confidence,
+            min_hand_presence_confidence=self._min_tracking_confidence,
+            min_tracking_confidence=self._min_tracking_confidence,
+        )
+        self._landmarker = vision.HandLandmarker.create_from_options(options)
 
         self._cap = cv2.VideoCapture(0)
         self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._frame_width)
@@ -51,20 +75,21 @@ class HandGestureAdapter(InputAdapter):
             raise RuntimeError("Failed to open webcam")
 
         self._running = True
-        logger.info("HandGestureAdapter started")
+        self._frame_timestamp_ms = 0
+        logger.info("HandGestureAdapter started with MediaPipe Tasks API")
 
     def stop(self) -> None:
         self._running = False
         if self._cap:
             self._cap.release()
             self._cap = None
-        if self._hands:
-            self._hands.close()
-            self._hands = None
+        if self._landmarker:
+            self._landmarker.close()
+            self._landmarker = None
         logger.info("HandGestureAdapter stopped")
 
     def read_frame(self) -> AdapterFrame:
-        if not self._running or not self._cap:
+        if not self._running or not self._cap or not self._landmarker:
             return AdapterFrame()
 
         current_time = time.time()
@@ -78,24 +103,20 @@ class HandGestureAdapter(InputAdapter):
         self._last_frame_time = current_time
         frame = cv2.flip(frame, 1)
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        results = self._hands.process(rgb_frame)
+
+        import mediapipe as mp
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
+        self._frame_timestamp_ms += int(self._frame_interval * 1000)
+        result = self._landmarker.detect_for_video(mp_image, self._frame_timestamp_ms)
 
         left_stick = (0.0, 0.0)
         right_stick = (0.0, 0.0)
         triggers = (0.0, 0.0)
         buttons = {}
 
-        if results.multi_hand_landmarks:
-            hand_landmarks = results.multi_hand_landmarks[0]
-            self._mp_drawing.draw_landmarks(
-                frame,
-                hand_landmarks,
-                self._mp_hands.HAND_CONNECTIONS,
-                self._mp_drawing_styles.get_default_hand_landmarks_style(),
-                self._mp_drawing_styles.get_default_hand_connections_style(),
-            )
-
-            landmarks = hand_landmarks.landmark
+        if result.hand_landmarks:
+            landmarks = result.hand_landmarks[0]
+            self._draw_landmarks(frame, landmarks)
             left_stick, right_stick, triggers, buttons = self._process_gestures(landmarks)
 
         return AdapterFrame(
@@ -104,8 +125,19 @@ class HandGestureAdapter(InputAdapter):
             triggers=triggers,
             buttons=buttons,
             annotated_frame=frame,
-            metadata={"hands_detected": len(results.multi_hand_landmarks) if results.multi_hand_landmarks else 0}
+            metadata={"hands_detected": len(result.hand_landmarks)}
         )
+
+    def _draw_landmarks(self, frame: np.ndarray, landmarks) -> None:
+        h, w = frame.shape[:2]
+        points = [(int(lm.x * w), int(lm.y * h)) for lm in landmarks]
+
+        for start, end in HAND_CONNECTIONS:
+            if start < len(points) and end < len(points):
+                cv2.line(frame, points[start], points[end], (0, 255, 0), 2)
+
+        for x, y in points:
+            cv2.circle(frame, (x, y), 4, (0, 0, 255), -1)
 
     def _process_gestures(self, landmarks) -> Tuple[Tuple[float, float], Tuple[float, float], Tuple[float, float], Dict[str, bool]]:
         wrist = landmarks[0]

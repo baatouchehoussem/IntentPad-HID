@@ -46,6 +46,7 @@ htmlcov/
 
 # MediaPipe model cache
 .mediapipe/
+models/*.task
 
 # Video captures
 *.mp4
