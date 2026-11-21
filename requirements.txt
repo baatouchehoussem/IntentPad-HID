@@ -1,0 +1,29 @@
+# Core dependencies
+numpy>=1.24.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# Web framework
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+websockets>=12.0
+
+# Computer vision & ML
+opencv-python>=4.8.0
+mediapipe>=0.10.0
+
+# Input handling
+pynput>=1.7.6
+
+# Platform-specific virtual gamepad
+vgamepad>=0.0.8; sys_platform == "win32"
+evdev>=1.6.1; sys_platform == "linux"
+
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
+
+# Development
+ruff>=0.1.0
+mypy>=1.7.0

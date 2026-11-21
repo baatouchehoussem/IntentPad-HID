@@ -1,0 +1,1057 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IntentPad-HID Mission Control</title>
+  <style>
+    :root {
+      --bg-primary: #0a0a0f;
+      --bg-secondary: #12121a;
+      --bg-tertiary: #1a1a24;
+      --glass-bg: rgba(255, 255, 255, 0.05);
+      --glass-border: rgba(255, 255, 255, 0.1);
+      --glass-highlight: rgba(255, 255, 255, 0.08);
+      --text-primary: #f0f0f5;
+      --text-secondary: #a0a0b0;
+      --text-muted: #606070;
+      --accent-primary: #00d4aa;
+      --accent-secondary: #0099ff;
+      --accent-warning: #ffaa00;
+      --accent-danger: #ff4466;
+      --shadow-soft: 0 8px 32px rgba(0, 0, 0, 0.4);
+      --shadow-hard: 0 4px 16px rgba(0, 0, 0, 0.6);
+      --radius-sm: 8px;
+      --radius-md: 16px;
+      --radius-lg: 24px;
+      --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg-primary: #f5f5fa;
+        --bg-secondary: #ffffff;
+        --bg-tertiary: #eeeef5;
+        --glass-bg: rgba(255, 255, 255, 0.7);
+        --glass-border: rgba(0, 0, 0, 0.08);
+        --glass-highlight: rgba(255, 255, 255, 0.9);
+        --text-primary: #1a1a24;
+        --text-secondary: #505060;
+        --text-muted: #9090a0;
+        --shadow-soft: 0 8px 32px rgba(0, 0, 0, 0.1);
+        --shadow-hard: 0 4px 16px rgba(0, 0, 0, 0.15);
+      }
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    .bg-gradient {
+      position: fixed;
+      inset: 0;
+      background: radial-gradient(ellipse at 20% 20%, rgba(0, 212, 170, 0.08) 0%, transparent 50%),
+                  radial-gradient(ellipse at 80% 80%, rgba(0, 153, 255, 0.08) 0%, transparent 50%),
+                  var(--bg-primary);
+      z-index: -1;
+    }
+
+    .grid-pattern {
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+      background-size: 40px 40px;
+      z-index: -1;
+      pointer-events: none;
+    }
+
+    .container {
+      max-width: 1600px;
+      margin: 0 auto;
+      padding: 24px;
+      display: grid;
+      grid-template-columns: 1fr 420px;
+      gap: 24px;
+      min-height: 100vh;
+    }
+
+    @media (max-width: 1200px) {
+      .container { grid-template-columns: 1fr; }
+    }
+
+    .glass-panel {
+      background: var(--glass-bg);
+      backdrop-filter: blur(24px) saturate(180%);
+      -webkit-backdrop-filter: blur(24px) saturate(180%);
+      border: 1px solid var(--glass-border);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-soft);
+      transition: var(--transition);
+    }
+
+    .glass-panel:hover {
+      border-color: var(--glass-highlight);
+      box-shadow: var(--shadow-hard), 0 0 0 1px var(--glass-highlight);
+    }
+
+    header {
+      grid-column: 1 / -1;
+      padding: 20px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .logo-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: var(--radius-md);
+      background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+    }
+
+    .logo-text {
+      font-size: 1.5rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .status-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      border-radius: 100px;
+      font-size: 0.85rem;
+      font-weight: 500;
+    }
+
+    .status-badge.connected {
+      background: rgba(0, 212, 170, 0.15);
+      color: var(--accent-primary);
+      border: 1px solid rgba(0, 212, 170, 0.3);
+    }
+
+    .status-badge.disconnected {
+      background: rgba(255, 68, 102, 0.15);
+      color: var(--accent-danger);
+      border: 1px solid rgba(255, 68, 102, 0.3);
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+
+    .status-badge.connected .status-dot { background: var(--accent-primary); }
+    .status-badge.disconnected .status-dot { background: var(--accent-danger); }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(0.9); }
+    }
+
+    main {
+      display: grid;
+      grid-template-rows: 1fr auto;
+      gap: 16px;
+    }
+
+    .video-section {
+      aspect-ratio: 16/9;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .video-feed {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border-radius: calc(var(--radius-lg) - 1px);
+    }
+
+    .video-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      padding: 16px;
+      pointer-events: none;
+    }
+
+    .fps-counter {
+      font-family: 'SF Mono', 'Monaco', monospace;
+      font-size: 0.75rem;
+      padding: 6px 12px;
+      border-radius: 6px;
+      background: rgba(0, 0, 0, 0.6);
+      color: var(--accent-primary);
+    }
+
+    .hand-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      border-radius: 6px;
+      background: rgba(0, 0, 0, 0.6);
+      font-size: 0.8rem;
+    }
+
+    .hand-status.detected { color: var(--accent-primary); }
+    .hand-status.none { color: var(--text-muted); }
+
+    .controller-section {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    @media (max-width: 600px) {
+      .controller-section { grid-template-columns: 1fr; }
+    }
+
+    .stick-visualizer {
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .stick-label {
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .stick-canvas {
+      width: 160px;
+      height: 160px;
+      border-radius: 50%;
+      background: radial-gradient(circle at center, var(--bg-tertiary) 0%, var(--bg-secondary) 70%, var(--bg-primary) 100%);
+      border: 2px solid var(--glass-border);
+      position: relative;
+      box-shadow: inset 0 4px 16px rgba(0, 0, 0, 0.3), 0 0 0 1px var(--glass-highlight);
+    }
+
+    .stick-canvas::before {
+      content: '';
+      position: absolute;
+      inset: 8px;
+      border-radius: 50%;
+      border: 1px dashed var(--glass-border);
+    }
+
+    .stick-canvas::after {
+      content: '';
+      position: absolute;
+      inset: 24px;
+      border-radius: 50%;
+      border: 1px dashed var(--glass-border);
+    }
+
+    .stick-knob {
+      position: absolute;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: linear-gradient(145deg, var(--accent-primary), #00aa88);
+      box-shadow: 0 4px 12px rgba(0, 212, 170, 0.4), inset 0 -2px 4px rgba(0, 0, 0, 0.2);
+      transform: translate(-50%, -50%);
+      transition: transform 0.016s linear, box-shadow 0.1s;
+      z-index: 10;
+    }
+
+    .stick-knob.active {
+      box-shadow: 0 0 20px rgba(0, 212, 170, 0.6), 0 4px 12px rgba(0, 212, 170, 0.4), inset 0 -2px 4px rgba(0, 0, 0, 0.2);
+    }
+
+    .stick-coords {
+      font-family: 'SF Mono', monospace;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    .trigger-visualizer {
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .trigger-row {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .trigger-label {
+      width: 40px;
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+    }
+
+    .trigger-bar {
+      flex: 1;
+      height: 20px;
+      background: var(--bg-tertiary);
+      border-radius: 10px;
+      overflow: hidden;
+      position: relative;
+      border: 1px solid var(--glass-border);
+    }
+
+    .trigger-fill {
+      height: 100%;
+      border-radius: 10px;
+      transition: width 0.016s linear, background 0.2s;
+      background: linear-gradient(90deg, var(--accent-secondary), var(--accent-primary));
+      box-shadow: 0 0 12px rgba(0, 153, 255, 0.4);
+    }
+
+    .trigger-value {
+      width: 45px;
+      font-family: 'SF Mono', monospace;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      text-align: right;
+    }
+
+    .buttons-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      padding: 16px;
+    }
+
+    .btn-visual {
+      aspect-ratio: 1;
+      border-radius: 50%;
+      background: var(--bg-tertiary);
+      border: 2px solid var(--glass-border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 600;
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+      transition: var(--transition);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .btn-visual::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+      opacity: 0;
+      transition: opacity 0.1s;
+    }
+
+    .btn-visual.active {
+      border-color: var(--accent-primary);
+      color: var(--bg-primary);
+      box-shadow: 0 0 16px rgba(0, 212, 170, 0.5);
+    }
+
+    .btn-visual.active::before { opacity: 1; }
+    .btn-visual span { position: relative; z-index: 1; }
+
+    .btn-visual.lb, .btn-visual.rb, .btn-visual.lt, .btn-visual.rt {
+      border-radius: var(--radius-md);
+    }
+
+    .btn-visual.lb, .btn-visual.rb { grid-column: span 2; }
+
+    aside {
+      display: grid;
+      grid-template-rows: auto auto auto;
+      gap: 16px;
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--glass-border);
+    }
+
+    .panel-title {
+      font-size: 1rem;
+      font-weight: 600;
+    }
+
+    .panel-content { padding: 16px 20px; }
+
+    .control-group {
+      margin-bottom: 20px;
+    }
+
+    .control-group:last-child { margin-bottom: 0; }
+
+    .control-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+      margin-bottom: 8px;
+    }
+
+    .control-value {
+      font-family: 'SF Mono', monospace;
+      color: var(--accent-primary);
+    }
+
+    input[type="range"] {
+      width: 100%;
+      height: 6px;
+      -webkit-appearance: none;
+      appearance: none;
+      background: var(--bg-tertiary);
+      border-radius: 3px;
+      outline: none;
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0, 212, 170, 0.4);
+      transition: var(--transition);
+    }
+
+    input[type="range"]::-webkit-slider-thumb:hover {
+      transform: scale(1.15);
+      box-shadow: 0 4px 16px rgba(0, 212, 170, 0.6);
+    }
+
+    input[type="range"]::-moz-range-thumb {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+      cursor: pointer;
+      border: none;
+      box-shadow: 0 2px 8px rgba(0, 212, 170, 0.4);
+    }
+
+    .select-wrapper {
+      position: relative;
+    }
+
+    select {
+      width: 100%;
+      padding: 10px 14px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--glass-border);
+      border-radius: var(--radius-sm);
+      color: var(--text-primary);
+      font-size: 0.9rem;
+      appearance: none;
+      cursor: pointer;
+      transition: var(--transition);
+    }
+
+    select:hover { border-color: var(--glass-highlight); }
+    select:focus { outline: none; border-color: var(--accent-primary); box-shadow: 0 0 0 3px rgba(0, 212, 170, 0.2); }
+
+    .select-wrapper::after {
+      content: '▼';
+      position: absolute;
+      right: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 0.6rem;
+      color: var(--text-muted);
+      pointer-events: none;
+    }
+
+    .switch-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 0;
+    }
+
+    .switch-label { font-size: 0.9rem; }
+
+    .toggle {
+      position: relative;
+      width: 52px;
+      height: 28px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--glass-border);
+      border-radius: 14px;
+      cursor: pointer;
+      transition: var(--transition);
+    }
+
+    .toggle.active {
+      background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+      border-color: transparent;
+    }
+
+    .toggle::after {
+      content: '';
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: white;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+      transition: transform 0.2s;
+    }
+
+    .toggle.active::after { transform: translateX(24px); }
+
+    .profile-card {
+      padding: 12px;
+      border-radius: var(--radius-md);
+      background: var(--bg-tertiary);
+      border: 1px solid var(--glass-border);
+      cursor: pointer;
+      transition: var(--transition);
+      margin-bottom: 8px;
+    }
+
+    .profile-card:last-child { margin-bottom: 0; }
+    .profile-card:hover { border-color: var(--glass-highlight); background: var(--bg-secondary); }
+    .profile-card.active { border-color: var(--accent-primary); background: rgba(0, 212, 170, 0.1); }
+
+    .profile-name { font-weight: 600; font-size: 0.9rem; }
+    .profile-desc { font-size: 0.75rem; color: var(--text-muted); margin-top: 4px; }
+
+    .adapter-tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .adapter-tab {
+      flex: 1;
+      padding: 10px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--glass-border);
+      border-radius: var(--radius-sm);
+      color: var(--text-secondary);
+      font-size: 0.85rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: var(--transition);
+    }
+
+    .adapter-tab:hover { border-color: var(--glass-highlight); color: var(--text-primary); }
+    .adapter-tab.active {
+      background: rgba(0, 212, 170, 0.15);
+      border-color: var(--accent-primary);
+      color: var(--accent-primary);
+    }
+
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      padding: 14px 20px;
+      background: var(--glass-bg);
+      backdrop-filter: blur(24px);
+      border: 1px solid var(--glass-border);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-hard);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      transform: translateY(100px);
+      opacity: 0;
+      transition: var(--transition);
+      z-index: 1000;
+    }
+
+    .toast.show { transform: translateY(0); opacity: 1; }
+    .toast.success { border-left: 4px solid var(--accent-primary); }
+    .toast.error { border-left: 4px solid var(--accent-danger); }
+    .toast.info { border-left: 4px solid var(--accent-secondary); }
+
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <div class="bg-gradient"></div>
+  <div class="grid-pattern"></div>
+
+  <div class="container">
+    <header class="glass-panel">
+      <div class="logo">
+        <div class="logo-icon">🎮</div>
+        <span class="logo-text">IntentPad-HID</span>
+      </div>
+      <div class="status-badge disconnected" id="statusBadge">
+        <span class="status-dot"></span>
+        <span id="statusText">Disconnected</span>
+      </div>
+    </header>
+
+    <main class="glass-panel">
+      <section class="video-section">
+        <img class="video-feed" id="videoFeed" src="/video_feed" alt="Hand tracking feed">
+        <div class="video-overlay">
+          <div class="fps-counter" id="fpsCounter">FPS: --</div>
+          <div class="hand-status none" id="handStatus">No hand detected</div>
+        </div>
+      </section>
+
+      <section class="controller-section">
+        <div class="stick-visualizer">
+          <span class="stick-label">Left Stick (Movement)</span>
+          <div class="stick-canvas" id="leftStickCanvas">
+            <div class="stick-knob" id="leftStickKnob" style="left: 50%; top: 50%;"></div>
+          </div>
+          <span class="stick-coords" id="leftStickCoords">X: 0.00, Y: 0.00</span>
+        </div>
+
+        <div class="stick-visualizer">
+          <span class="stick-label">Right Stick (Camera/Aim)</span>
+          <div class="stick-canvas" id="rightStickCanvas">
+            <div class="stick-knob" id="rightStickKnob" style="left: 50%; top: 50%;"></div>
+          </div>
+          <span class="stick-coords" id="rightStickCoords">X: 0.00, Y: 0.00</span>
+        </div>
+
+        <div class="trigger-visualizer">
+          <div class="trigger-row">
+            <span class="trigger-label">LT</span>
+            <div class="trigger-bar"><div class="trigger-fill" id="ltFill" style="width: 0%"></div></div>
+            <span class="trigger-value" id="ltValue">0%</span>
+          </div>
+          <div class="trigger-row">
+            <span class="trigger-label">RT</span>
+            <div class="trigger-bar"><div class="trigger-fill" id="rtFill" style="width: 0%"></div></div>
+            <span class="trigger-value" id="rtValue">0%</span>
+          </div>
+        </div>
+
+        <div class="buttons-grid">
+          <div class="btn-visual lb" data-btn="LB"><span>LB</span></div>
+          <div class="btn-visual rb" data-btn="RB"><span>RB</span></div>
+          <div class="btn-visual" data-btn="Y"><span>Y</span></div>
+          <div class="btn-visual" data-btn="B"><span>B</span></div>
+          <div class="btn-visual" data-btn="X"><span>X</span></div>
+          <div class="btn-visual" data-btn="A"><span>A</span></div>
+          <div class="btn-visual" data-btn="BACK"><span>⏪</span></div>
+          <div class="btn-visual" data-btn="START"><span>⏩</span></div>
+          <div class="btn-visual" data-btn="LS"><span>LS</span></div>
+          <div class="btn-visual" data-btn="RS"><span>RS</span></div>
+          <div class="btn-visual" data-btn="UP"><span>▲</span></div>
+          <div class="btn-visual" data-btn="DOWN"><span>▼</span></div>
+          <div class="btn-visual" data-btn="LEFT"><span>◄</span></div>
+          <div class="btn-visual" data-btn="RIGHT"><span>►</span></div>
+        </div>
+      </section>
+    </main>
+
+    <aside>
+      <div class="glass-panel">
+        <div class="panel-header">
+          <span class="panel-title">Profile</span>
+        </div>
+        <div class="panel-content">
+          <div class="adapter-tabs">
+            <button class="adapter-tab active" data-adapter="hand_gesture">Hand Gesture</button>
+            <button class="adapter-tab" data-adapter="neural_hid">Neural HID</button>
+          </div>
+          <div id="profileList"></div>
+        </div>
+      </div>
+
+      <div class="glass-panel">
+        <div class="panel-header">
+          <span class="panel-title">Signal Processing</span>
+        </div>
+        <div class="panel-content">
+          <div class="control-group">
+            <div class="control-label"><span>Left Stick Deadzone</span><span class="control-value" id="lsDeadzoneVal">0.15</span></div>
+            <input type="range" id="lsDeadzone" min="0" max="0.5" step="0.01" value="0.15">
+          </div>
+          <div class="control-group">
+            <div class="control-label"><span>Left Stick Sensitivity</span><span class="control-value" id="lsSensVal">1.0</span></div>
+            <input type="range" id="lsSens" min="0.1" max="2.0" step="0.1" value="1.0">
+          </div>
+          <div class="control-group">
+            <div class="control-label"><span>Left Stick Smoothing (EMA)</span><span class="control-value" id="lsEmaVal">0.25</span></div>
+            <input type="range" id="lsEma" min="0.05" max="0.9" step="0.05" value="0.25">
+          </div>
+          <div class="control-group">
+            <div class="control-label"><span>Left Stick Curve</span></div>
+            <div class="select-wrapper">
+              <select id="lsCurve">
+                <option value="linear">Linear</option>
+                <option value="exponential" selected>Exponential</option>
+                <option value="logarithmic">Logarithmic</option>
+                <option value="s_curve">S-Curve</option>
+              </select>
+            </div>
+          </div>
+          <div class="control-group">
+            <div class="control-label"><span>Right Stick Deadzone</span><span class="control-value" id="rsDeadzoneVal">0.05</span></div>
+            <input type="range" id="rsDeadzone" min="0" max="0.5" step="0.01" value="0.05">
+          </div>
+          <div class="control-group">
+            <div class="control-label"><span>Right Stick Sensitivity</span><span class="control-value" id="rsSensVal">1.2</span></div>
+            <input type="range" id="rsSens" min="0.1" max="2.0" step="0.1" value="1.2">
+          </div>
+          <div class="control-group">
+            <div class="control-label"><span>Right Stick Smoothing (EMA)</span><span class="control-value" id="rsEmaVal">0.15</span></div>
+            <input type="range" id="rsEma" min="0.05" max="0.9" step="0.05" value="0.15">
+          </div>
+          <div class="control-group">
+            <div class="control-label"><span>Right Stick Curve</span></div>
+            <div class="select-wrapper">
+              <select id="rsCurve">
+                <option value="linear">Linear</option>
+                <option value="exponential" selected>Exponential</option>
+                <option value="logarithmic">Logarithmic</option>
+                <option value="s_curve">S-Curve</option>
+              </select>
+            </div>
+          </div>
+          <div class="control-group">
+            <div class="control-label"><span>Trigger Deadzone</span><span class="control-value" id="trDeadzoneVal">0.05</span></div>
+            <input type="range" id="trDeadzone" min="0" max="0.3" step="0.01" value="0.05">
+          </div>
+          <div class="control-group">
+            <div class="control-label"><span>Trigger Sensitivity</span><span class="control-value" id="trSensVal">1.0</span></div>
+            <input type="range" id="trSens" min="0.1" max="2.0" step="0.1" value="1.0">
+          </div>
+        </div>
+      </div>
+
+      <div class="glass-panel">
+        <div class="panel-header">
+          <span class="panel-title">System</span>
+        </div>
+        <div class="panel-content">
+          <div class="switch-row">
+            <span class="switch-label">Auto-reconnect</span>
+            <div class="toggle active" id="autoReconnect"></div>
+          </div>
+          <div class="switch-row">
+            <span class="switch-label">Show debug info</span>
+            <div class="toggle" id="showDebug"></div>
+          </div>
+          <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--glass-border);">
+            <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 8px;">Gamepad Backend</div>
+            <div id="gamepadBackend" style="font-family: 'SF Mono', monospace; font-size: 0.85rem; color: var(--accent-primary);">Detecting...</div>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <div class="toast" id="toast">
+    <span id="toastIcon">ℹ️</span>
+    <span id="toastMessage"></span>
+  </div>
+
+  <script>
+    const ws = new WebSocket(`ws://${location.host}/ws/telemetry`);
+    const statusBadge = document.getElementById('statusBadge');
+    const statusText = document.getElementById('statusText');
+    const videoFeed = document.getElementById('videoFeed');
+    const fpsCounter = document.getElementById('fpsCounter');
+    const handStatus = document.getElementById('handStatus');
+
+    const leftStickKnob = document.getElementById('leftStickKnob');
+    const rightStickKnob = document.getElementById('rightStickKnob');
+    const leftStickCoords = document.getElementById('leftStickCoords');
+    const rightStickCoords = document.getElementById('rightStickCoords');
+    const ltFill = document.getElementById('ltFill');
+    const rtFill = document.getElementById('rtFill');
+    const ltValue = document.getElementById('ltValue');
+    const rtValue = document.getElementById('rtValue');
+    const profileList = document.getElementById('profileList');
+    const gamepadBackend = document.getElementById('gamepadBackend');
+
+    const btnElements = document.querySelectorAll('.btn-visual');
+    const adapterTabs = document.querySelectorAll('.adapter-tab');
+
+    const controls = {
+      lsDeadzone: document.getElementById('lsDeadzone'),
+      lsSens: document.getElementById('lsSens'),
+      lsEma: document.getElementById('lsEma'),
+      lsCurve: document.getElementById('lsCurve'),
+      rsDeadzone: document.getElementById('rsDeadzone'),
+      rsSens: document.getElementById('rsSens'),
+      rsEma: document.getElementById('rsEma'),
+      rsCurve: document.getElementById('rsCurve'),
+      trDeadzone: document.getElementById('trDeadzone'),
+      trSens: document.getElementById('trSens'),
+    };
+
+    const valueDisplays = {
+      lsDeadzoneVal: document.getElementById('lsDeadzoneVal'),
+      lsSensVal: document.getElementById('lsSensVal'),
+      lsEmaVal: document.getElementById('lsEmaVal'),
+      rsDeadzoneVal: document.getElementById('rsDeadzoneVal'),
+      rsSensVal: document.getElementById('rsSensVal'),
+      rsEmaVal: document.getElementById('rsEmaVal'),
+      trDeadzoneVal: document.getElementById('trDeadzoneVal'),
+      trSensVal: document.getElementById('trSensVal'),
+    };
+
+    let currentProfile = '';
+    let currentAdapter = 'hand_gesture';
+    let reconnectTimer = null;
+    let lastFrameTime = performance.now();
+    let frameCount = 0;
+
+    function showToast(message, type = 'info') {
+      const toast = document.getElementById('toast');
+      const toastIcon = document.getElementById('toastIcon');
+      const toastMessage = document.getElementById('toastMessage');
+      toastMessage.textContent = message;
+      toast.className = `toast ${type} show`;
+      toastIcon.textContent = type === 'success' ? '✅' : type === 'error' ? '❌' : 'ℹ️';
+      setTimeout(() => toast.classList.remove('show'), 3000);
+    }
+
+    function updateStick(knob, coordsEl, x, y) {
+      const radius = 64;
+      const cx = 50 + (x * radius / 100);
+      const cy = 50 - (y * radius / 100);
+      knob.style.left = `${cx}%`;
+      knob.style.top = `${cy}%`;
+      knob.classList.toggle('active', Math.abs(x) > 0.1 || Math.abs(y) > 0.1);
+      coordsEl.textContent = `X: ${x.toFixed(2)}, Y: ${y.toFixed(2)}`;
+    }
+
+    function updateTrigger(fillEl, valueEl, value) {
+      const pct = Math.round(value * 100);
+      fillEl.style.width = `${pct}%`;
+      valueEl.textContent = `${pct}%`;
+    }
+
+    function updateButton(btnName, pressed) {
+      const btn = document.querySelector(`.btn-visual[data-btn="${btnName}"]`);
+      if (btn) btn.classList.toggle('active', pressed);
+    }
+
+    function sendConfig() {
+      const config = {
+        type: 'config_update',
+        data: {
+          smoothing: {
+            lx: parseFloat(controls.lsEma.value),
+            ly: parseFloat(controls.lsEma.value),
+            rx: parseFloat(controls.rsEma.value),
+            ry: parseFloat(controls.rsEma.value),
+          },
+          deadzones: {
+            lx: parseFloat(controls.lsDeadzone.value),
+            ly: parseFloat(controls.lsDeadzone.value),
+            rx: parseFloat(controls.rsDeadzone.value),
+            ry: parseFloat(controls.rsDeadzone.value),
+            lt: parseFloat(controls.trDeadzone.value),
+            rt: parseFloat(controls.trDeadzone.value),
+          },
+          sensitivity: {
+            lx: parseFloat(controls.lsSens.value),
+            ly: parseFloat(controls.lsSens.value),
+            rx: parseFloat(controls.rsSens.value),
+            ry: parseFloat(controls.rsSens.value),
+            lt: parseFloat(controls.trSens.value),
+            rt: parseFloat(controls.trSens.value),
+          },
+          curves: {
+            lx: controls.lsCurve.value,
+            ly: controls.lsCurve.value,
+            rx: controls.rsCurve.value,
+            ry: controls.rsCurve.value,
+          }
+        }
+      };
+      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(config));
+    }
+
+    function debounce(fn, ms) {
+      let timer;
+      return (...args) => {
+        clearTimeout(timer);
+        timer = setTimeout(() => fn(...args), ms);
+      };
+    }
+
+    const debouncedSendConfig = debounce(sendConfig, 100);
+
+    Object.entries(controls).forEach(([key, el]) => {
+      if (el.type === 'range') {
+        el.addEventListener('input', () => {
+          const valKey = key + 'Val';
+          if (valueDisplays[valKey]) {
+            valueDisplays[valKey].textContent = parseFloat(el.value).toFixed(key.includes('Ema') ? 2 : 1);
+          }
+          debouncedSendConfig();
+        });
+      } else if (el.tagName === 'SELECT') {
+        el.addEventListener('change', debouncedSendConfig);
+      }
+    });
+
+    adapterTabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        adapterTabs.forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        currentAdapter = tab.dataset.adapter;
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'switch_adapter', adapter: currentAdapter }));
+        }
+      });
+    });
+
+    ws.onopen = () => {
+      statusBadge.className = 'status-badge connected';
+      statusText.textContent = 'Connected';
+      showToast('Connected to IntentPad server', 'success');
+      sendConfig();
+      fetch('/status').then(r => r.json()).then(data => {
+        gamepadBackend.textContent = data.gamepad_type;
+        renderProfiles(data.available_profiles, data.active_profile);
+      });
+    };
+
+    ws.onclose = () => {
+      statusBadge.className = 'status-badge disconnected';
+      statusText.textContent = 'Disconnected';
+      showToast('Disconnected from server', 'error');
+      scheduleReconnect();
+    };
+
+    ws.onerror = () => {
+      showToast('Connection error', 'error');
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        updateTelemetry(data);
+      } catch (e) {}
+    };
+
+    function updateTelemetry(data) {
+      updateStick(leftStickKnob, leftStickCoords, data.left_stick[0], data.left_stick[1]);
+      updateStick(rightStickKnob, rightStickCoords, data.right_stick[0], data.right_stick[1]);
+      updateTrigger(ltFill, ltValue, data.triggers[0]);
+      updateTrigger(rtFill, rtValue, data.triggers[1]);
+
+      Object.entries(data.buttons).forEach(([btn, pressed]) => updateButton(btn, pressed));
+
+      if (data.active_profile !== currentProfile) {
+        currentProfile = data.active_profile;
+        renderProfiles(null, currentProfile);
+      }
+    }
+
+    function renderProfiles(profiles, active) {
+      if (profiles) {
+        profileList.innerHTML = profiles.map(p => `
+          <div class="profile-card ${p === active ? 'active' : ''}" data-profile="${p}">
+            <div class="profile-name">${p.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</div>
+            <div class="profile-desc">${getProfileDesc(p)}</div>
+          </div>
+        `).join('');
+      } else {
+        document.querySelectorAll('.profile-card').forEach(card => {
+          card.classList.toggle('active', card.dataset.profile === active);
+        });
+      }
+
+      document.querySelectorAll('.profile-card').forEach(card => {
+        card.addEventListener('click', () => {
+          const profile = card.dataset.profile;
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'switch_profile', profile }));
+            showToast(`Switched to ${profile}`, 'success');
+          }
+        });
+      });
+    }
+
+    function getProfileDesc(name) {
+      const descs = {
+        gta_driving: 'Smooth steering, responsive triggers for driving',
+        fps_tactical: 'Precise aim, quick trigger response for shooters',
+        desktop_assistive: 'Gentle curves, large deadzones for stability'
+      };
+      return descs[name] || '';
+    }
+
+    function scheduleReconnect() {
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      reconnectTimer = setTimeout(() => {
+        location.reload();
+      }, 3000);
+    }
+
+    videoFeed.onload = () => {
+      const now = performance.now();
+      frameCount++;
+      if (now - lastFrameTime >= 1000) {
+        fpsCounter.textContent = `FPS: ${frameCount}`;
+        frameCount = 0;
+        lastFrameTime = now;
+      }
+    };
+
+    videoFeed.onerror = () => {
+      handStatus.textContent = 'Camera unavailable';
+      handStatus.className = 'hand-status none';
+    };
+
+    document.getElementById('autoReconnect').addEventListener('click', function() {
+      this.classList.toggle('active');
+    });
+
+    document.getElementById('showDebug').addEventListener('click', function() {
+      this.classList.toggle('active');
+    });
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && ws.readyState !== WebSocket.OPEN) {
+        location.reload();
+      }
+    });
+  </script>
+</body>
+</html>

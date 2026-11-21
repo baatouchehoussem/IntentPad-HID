@@ -1,0 +1,106 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "intentpad-hid"
+version = "0.1.0"
+description = "Cross-platform Human-Intent & Multi-Modal Input to Virtual Xbox 360 Gamepad Engine"
+readme = "README.md"
+license = {file = "LICENSE"}
+authors = [
+    {name = "Houssem Baatouche", email = "baatouchehoussem@gmail.com"}
+]
+maintainers = [
+    {name = "Houssem Baatouche", email = "baatouchehoussem@gmail.com"}
+]
+keywords = [
+    "gamepad", "virtual-controller", "xbox360", "vigembus", "uinput",
+    "hand-tracking", "mediapipe", "neural-interface", "hid", "accessibility"
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Games/Entertainment",
+    "Topic :: System :: Hardware :: Hardware Drivers",
+    "Topic :: Scientific/Engineering :: Human Machine Interfaces",
+]
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24.0",
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.1.0",
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "websockets>=12.0",
+    "opencv-python>=4.8.0",
+    "mediapipe>=0.10.0",
+    "pynput>=1.7.6",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.1.0",
+    "mypy>=1.7.0",
+    "build>=1.0.0",
+]
+windows = [
+    "vgamepad>=0.0.8",
+]
+linux = [
+    "evdev>=1.6.1",
+]
+
+[project.urls]
+Homepage = "https://github.com/baatouchehoussem/IntentPad-HID"
+Repository = "https://github.com/baatouchehoussem/IntentPad-HID"
+Issues = "https://github.com/baatouchehoussem/IntentPad-HID/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["intentpad*"]
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"
+addopts = "-v --tb=short"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+select = [
+    "E", "F", "I", "N", "UP", "W",
+    "C4", "C9", "D", "DTZ", "EXE", "FBT", "ISC", "ICN", "PIE", "PT", "Q", "RET", "SIM", "T20", "TCH", "TID", "TRY",
+    "ARG", "PTH", "ERA", "PD", "PL", "RSE", "RUF", "SLF", "SLOT", "T10", "B", "A", "C", "COM", "DTZ", "EM", "EXE",
+    "FUR", "ISC", "ICN", "LOG", "M", "NPY", "PD", "PGH", "PIE", "PLE", "PLW", "PT", "PYI", "Q", "RSE", "RUF",
+    "S", "SIM", "SLF", "SLOT", "T10", "T20", "TCH", "TID", "TRY", "UP", "W",
+]
+ignore = ["migrations", "dist", "build"]
+per-file-ignores = {
+    "tests/*": ["S101", "D100", "D101", "D102", "D103", "D104", "D105", "D107"]
+}
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
+namespace_packages = true
