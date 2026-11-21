@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from .gamepad_engine import GamepadEngine, create_gamepad
+from .gamepad_engine import GamepadEngine, create_gamepad, MockGamepad
 from .pipeline import SignalFilter, CurveType
 from .profiles import ProfileManager, Profile, AxisConfig, TriggerConfig, ButtonMap
 from .adapters import HandGestureAdapter, NeuralHIDAdapter, InputAdapter
