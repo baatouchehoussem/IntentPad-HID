@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 class HandGestureAdapter(InputAdapter):
     def __init__(self, config: Optional[Dict[str, Any]] = None):
+        config = config or {}
         super().__init__(config)
         self._cap = None
         self._hands = None

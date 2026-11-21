@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 class NeuralHIDAdapter(InputAdapter):
     def __init__(self, config: Optional[Dict[str, Any]] = None):
+        config = config or {}
         super().__init__(config)
         self._screen_width = config.get("screen_width", 1920)
         self._screen_height = config.get("screen_height", 1080)

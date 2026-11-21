@@ -93,9 +93,7 @@ select = [
     "S", "SIM", "SLF", "SLOT", "T10", "T20", "TCH", "TID", "TRY", "UP", "W",
 ]
 ignore = ["migrations", "dist", "build"]
-per-file-ignores = {
-    "tests/*": ["S101", "D100", "D101", "D102", "D103", "D104", "D105", "D107"]
-}
+per-file-ignores = { "tests/*" = ["S101", "D100", "D101", "D102", "D103", "D104", "D105", "D107"] }
 
 [tool.mypy]
 python_version = "3.10"

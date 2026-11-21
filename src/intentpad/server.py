@@ -3,10 +3,11 @@ import logging
 import time
 import json
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Dict, Set, Optional, Any
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
-from fastapi.responses import StreamingResponse, HTMLResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -288,12 +289,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.mount("/static", StaticFiles(directory="web"), name="static")
+WEB_DIR = Path(__file__).resolve().parents[2] / "web"
+app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
 
 
 @app.get("/")
 async def root():
-    return HTMLResponse(content=open("web/index.html").read())
+    return FileResponse(WEB_DIR / "index.html", media_type="text/html")
 
 
 @app.get("/health")

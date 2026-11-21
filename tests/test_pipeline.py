@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 import math
 from intentpad.pipeline import (
@@ -6,6 +8,8 @@ from intentpad.pipeline import (
 )
 from intentpad.profiles import ProfileManager, DEFAULT_PROFILES
 from intentpad.gamepad_engine import MockGamepad, GamepadEngine, create_gamepad
+from intentpad.adapters import HandGestureAdapter, NeuralHIDAdapter
+from intentpad.server import root
 
 
 class TestSignalFilter:
@@ -83,7 +87,7 @@ class TestSignalFilter:
         filter.trigger_configs["rt"] = TriggerConfig(deadzone=0.1, ema_alpha=1.0, curve=CurveType.LINEAR)
 
         assert filter.process_trigger("rt", 0.05) == 0.0
-        assert filter.process_trigger("rt", 0.5) == 0.4444444444444444
+        assert filter.process_trigger("rt", 0.5) == pytest.approx(4 / 9)
 
     def test_vector_processing(self):
         filter = SignalFilter()
@@ -233,7 +237,8 @@ class TestGamepadEngine:
         assert state["buttons"]["A"] is True
         engine.close()
 
-    def test_create_gamepad_returns_mock_on_unsupported(self):
+    def test_create_gamepad_returns_mock_on_unsupported(self, monkeypatch):
+        monkeypatch.setattr("intentpad.gamepad_engine.platform.system", lambda: "unsupported")
         gamepad = create_gamepad()
         assert isinstance(gamepad, MockGamepad)
 
@@ -268,6 +273,27 @@ class TestIntegration:
 
         result = filter.process_axis("lx", 0.2)
         assert result > 0.0
+
+
+class TestStartup:
+    def test_hand_gesture_adapter_defaults_without_config(self):
+        adapter = HandGestureAdapter()
+        assert adapter.config == {}
+        assert adapter._frame_width == 640
+        assert adapter._frame_height == 480
+        assert adapter._fps == 30
+
+    def test_neural_hid_adapter_defaults_without_config(self):
+        adapter = NeuralHIDAdapter()
+        assert adapter.config == {}
+        assert adapter._screen_width == 1920
+        assert adapter._screen_height == 1080
+        assert adapter._dwell_time == 0.8
+
+    def test_root_serves_dashboard_with_absolute_path(self):
+        response = asyncio.run(root())
+        assert response.media_type == "text/html"
+        assert "IntentPad-HID Mission Control" in open(response.path, encoding="utf-8").read()
 
 
 if __name__ == "__main__":
