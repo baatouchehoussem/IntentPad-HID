@@ -35,6 +35,9 @@ class TelemetryData(BaseModel):
     timestamp: float = 0.0
     hand_detected: bool = False
     hands_detected: int = 0
+    left_hand_detected: bool = False
+    right_hand_detected: bool = False
+    fps: float = 0.0
 
 
 class ConfigUpdate(BaseModel):
@@ -149,9 +152,15 @@ class IntentPadServer:
         active_profile = self._profile_manager.get_active_profile()
         hand_detected = False
         hands_detected = 0
+        left_hand_detected = False
+        right_hand_detected = False
+        fps = 0.0
         if self._last_frame and self._last_frame.metadata:
             hands_detected = self._last_frame.metadata.get("hands_detected", 0)
             hand_detected = hands_detected > 0
+            left_hand_detected = self._last_frame.metadata.get("left_hand_detected", False)
+            right_hand_detected = self._last_frame.metadata.get("right_hand_detected", False)
+            fps = self._last_frame.metadata.get("fps", 0.0)
         return TelemetryData(
             left_stick=self._get_stick_state("left"),
             right_stick=self._get_stick_state("right"),
@@ -162,6 +171,9 @@ class IntentPadServer:
             timestamp=time.time(),
             hand_detected=hand_detected,
             hands_detected=hands_detected,
+            left_hand_detected=left_hand_detected,
+            right_hand_detected=right_hand_detected,
+            fps=fps,
         )
 
     def _get_stick_state(self, side: str) -> tuple[float, float]:

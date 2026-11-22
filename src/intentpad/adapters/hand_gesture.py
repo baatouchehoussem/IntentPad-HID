@@ -5,7 +5,7 @@ import time
 import threading
 import urllib.request
 from pathlib import Path
-from typing import Optional, Tuple, Dict, Any
+from typing import Optional, Tuple, Dict, Any, List
 from .base import InputAdapter, AdapterFrame
 
 logger = logging.getLogger(__name__)
@@ -21,6 +21,9 @@ HAND_CONNECTIONS = [
     (13, 17), (17, 18), (18, 19), (19, 20),
     (0, 17), (0, 5), (9, 13)
 ]
+
+LEFT_HAND_COLOR = (255, 255, 0)   # Cyan/Green for Left Hand
+RIGHT_HAND_COLOR = (0, 165, 255)  # Amber/Red for Right Hand
 
 
 class HandGestureAdapter(InputAdapter):
@@ -47,8 +50,8 @@ class HandGestureAdapter(InputAdapter):
         self._frame_timestamp_ms = 0
         self._frame_interval_ms = 1000.0 / self._fps
         
-        self._fps_counter = 0
-        self._fps_start_time = time.time()
+        self._fps_samples: List[float] = []
+        self._max_fps_samples = 15
         self._current_fps = 0.0
 
     def _ensure_model(self) -> None:
@@ -92,7 +95,7 @@ class HandGestureAdapter(InputAdapter):
         self._frame_timestamp_ms = 0
         self._capture_thread = threading.Thread(target=self._capture_loop, daemon=True)
         self._capture_thread.start()
-        logger.info("HandGestureAdapter started with MediaPipe Tasks API (background capture)")
+        logger.info("HandGestureAdapter started with MediaPipe Tasks API (dual-hand tracking)")
 
     def stop(self) -> None:
         self._running = False
@@ -134,12 +137,34 @@ class HandGestureAdapter(InputAdapter):
             buttons = {}
             hands_detected = len(result.hand_landmarks)
             
+            left_hand_landmarks = None
+            right_hand_landmarks = None
+            
             if hands_detected > 0:
-                landmarks = result.hand_landmarks[0]
-                self._draw_landmarks(frame, landmarks)
-                left_stick, right_stick, triggers, buttons = self._process_gestures(landmarks)
-            else:
-                self._draw_landmarks(frame, None)
+                for i, landmarks in enumerate(result.hand_landmarks):
+                    handedness = result.handedness[i]
+                    if handedness and len(handedness) > 0:
+                        hand_label = handedness[0].category_name  # "Left" or "Right"
+                        # Camera is flipped, so user's physical left hand appears as "Right" in the flipped image
+                        if hand_label == "Left":
+                            right_hand_landmarks = landmarks  # User's right hand
+                        else:
+                            left_hand_landmarks = landmarks   # User's left hand
+            
+            if left_hand_landmarks:
+                self._draw_landmarks(frame, left_hand_landmarks, LEFT_HAND_COLOR)
+                left_stick, lt_val, left_buttons = self._process_left_hand(left_hand_landmarks)
+                buttons.update(left_buttons)
+                triggers = (lt_val, triggers[1])
+            
+            if right_hand_landmarks:
+                self._draw_landmarks(frame, right_hand_landmarks, RIGHT_HAND_COLOR)
+                right_stick, rt_val, right_buttons = self._process_right_hand(right_hand_landmarks)
+                buttons.update(right_buttons)
+                triggers = (triggers[0], rt_val)
+            
+            if not left_hand_landmarks and not right_hand_landmarks:
+                self._draw_landmarks(frame, None, LEFT_HAND_COLOR)
             
             adapter_frame = AdapterFrame(
                 left_stick=left_stick,
@@ -149,6 +174,8 @@ class HandGestureAdapter(InputAdapter):
                 annotated_frame=frame.copy(),
                 metadata={
                     "hands_detected": hands_detected,
+                    "left_hand_detected": left_hand_landmarks is not None,
+                    "right_hand_detected": right_hand_landmarks is not None,
                     "fps": self._current_fps
                 }
             )
@@ -159,12 +186,13 @@ class HandGestureAdapter(InputAdapter):
             with self._latest_annotated_lock:
                 self._latest_annotated_frame = frame.copy()
             
-            self._fps_counter += 1
-            elapsed = time.time() - self._fps_start_time
-            if elapsed >= 1.0:
-                self._current_fps = self._fps_counter / elapsed
-                self._fps_counter = 0
-                self._fps_start_time = time.time()
+            dt = time.time() - loop_start
+            if dt > 0:
+                instant_fps = 1.0 / dt
+                self._fps_samples.append(instant_fps)
+                if len(self._fps_samples) > self._max_fps_samples:
+                    self._fps_samples.pop(0)
+                self._current_fps = sum(self._fps_samples) / len(self._fps_samples)
             
             elapsed_ms = (time.time() - loop_start) * 1000
             sleep_ms = max(0, self._frame_interval_ms - elapsed_ms)
@@ -185,22 +213,22 @@ class HandGestureAdapter(InputAdapter):
                     return buffer.tobytes()
         return None
 
-    def _draw_landmarks(self, frame: np.ndarray, landmarks) -> None:
+    def _draw_landmarks(self, frame: np.ndarray, landmarks, color: Tuple[int, int, int] = LEFT_HAND_COLOR) -> None:
         h, w = frame.shape[:2]
         if landmarks:
             points = [(int(lm.x * w), int(lm.y * h)) for lm in landmarks]
 
             for start, end in HAND_CONNECTIONS:
                 if start < len(points) and end < len(points):
-                    cv2.line(frame, points[start], points[end], (0, 255, 0), 2)
+                    cv2.line(frame, points[start], points[end], color, 2)
 
             for x, y in points:
-                cv2.circle(frame, (x, y), 4, (0, 0, 255), -1)
+                cv2.circle(frame, (x, y), 4, color, -1)
         
         fps_text = f"FPS: {self._current_fps:.1f}"
         cv2.putText(frame, fps_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
-    def _process_gestures(self, landmarks) -> Tuple[Tuple[float, float], Tuple[float, float], Tuple[float, float], Dict[str, bool]]:
+    def _process_left_hand(self, landmarks) -> Tuple[Tuple[float, float], float, Dict[str, bool]]:
         wrist = landmarks[0]
         index_mcp = landmarks[5]
         index_tip = landmarks[8]
@@ -239,22 +267,62 @@ class HandGestureAdapter(InputAdapter):
         fist_score = self._compute_fist_score(landmarks)
         open_palm_score = self._compute_open_palm_score(landmarks)
 
-        rt_value = pinch_distance
         lt_value = fist_score
-
-        right_stick_x = 0.0
-        right_stick_y = 0.0
 
         buttons = {
             "A": open_palm_score > 0.7,
-            "B": False,
-            "X": False,
-            "Y": False,
-            "LB": False,
-            "RB": pinch_distance > 0.8,
+            "X": pinch_distance > 0.8,
         }
 
-        return (left_stick_x, left_stick_y), (right_stick_x, right_stick_y), (lt_value, rt_value), buttons
+        return (left_stick_x, left_stick_y), lt_value, buttons
+
+    def _process_right_hand(self, landmarks) -> Tuple[Tuple[float, float], float, Dict[str, bool]]:
+        wrist = landmarks[0]
+        index_mcp = landmarks[5]
+        index_tip = landmarks[8]
+        middle_mcp = landmarks[9]
+        middle_tip = landmarks[12]
+        ring_tip = landmarks[16]
+        pinky_tip = landmarks[20]
+        thumb_tip = landmarks[4]
+        thumb_ip = landmarks[3]
+        thumb_mcp = landmarks[2]
+
+        hand_center_x = wrist.x
+        hand_center_y = wrist.y
+
+        index_vec = np.array([index_tip.x - index_mcp.x, index_tip.y - index_mcp.y])
+        middle_vec = np.array([middle_tip.x - middle_mcp.x, middle_tip.y - middle_mcp.y])
+        hand_forward = (index_vec + middle_vec) / 2
+        hand_forward_norm = np.linalg.norm(hand_forward)
+        if hand_forward_norm > 0:
+            hand_forward = hand_forward / hand_forward_norm
+
+        hand_right = np.array([-hand_forward[1], hand_forward[0]])
+
+        roll = np.dot(np.array([wrist.x - index_mcp.x, wrist.y - index_mcp.y]), hand_right)
+        pitch = np.dot(np.array([wrist.x - index_mcp.x, wrist.y - index_mcp.y]), hand_forward)
+
+        right_stick_x = max(-1.0, min(1.0, roll * 3.0))
+        right_stick_y = max(-1.0, min(1.0, -pitch * 3.0))
+
+        thumb_index_dist = np.linalg.norm([
+            thumb_tip.x - index_tip.x,
+            thumb_tip.y - index_tip.y
+        ])
+        pinch_distance = max(0.0, min(1.0, (0.1 - thumb_index_dist) / 0.1 * 2))
+
+        fist_score = self._compute_fist_score(landmarks)
+        open_palm_score = self._compute_open_palm_score(landmarks)
+
+        rt_value = pinch_distance
+
+        buttons = {
+            "B": open_palm_score > 0.7,
+            "Y": pinch_distance > 0.8,
+        }
+
+        return (right_stick_x, right_stick_y), rt_value, buttons
 
     def _compute_fist_score(self, landmarks) -> float:
         tips = [8, 12, 16, 20]

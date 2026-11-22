@@ -996,9 +996,14 @@
       Object.entries(data.buttons).forEach(([btn, pressed]) => updateButton(btn, pressed));
 
       if (data.hand_detected !== undefined) {
-        handStatus.textContent = data.hand_detected 
-          ? `Hand detected (${data.hands_detected || 1})` 
-          : 'No hand detected';
+        let statusText = 'No hand detected';
+        if (data.hand_detected) {
+          const left = data.left_hand_detected ? 'L' : '';
+          const right = data.right_hand_detected ? 'R' : '';
+          const hands = [left, right].filter(Boolean).join('+');
+          statusText = `Tracking: ${hands || data.hands_detected} Hand${data.hands_detected > 1 ? 's' : ''}`;
+        }
+        handStatus.textContent = statusText;
         handStatus.className = data.hand_detected ? 'hand-status detected' : 'hand-status none';
       }
 
@@ -1008,6 +1013,10 @@
         updateTrigger(ltFill, ltValue, 0);
         updateTrigger(rtFill, rtValue, 0);
         Object.keys(data.buttons).forEach(btn => updateButton(btn, false));
+      }
+
+      if (data.fps !== undefined) {
+        fpsCounter.textContent = `FPS: ${Math.round(data.fps)}`;
       }
 
       if (data.active_profile !== currentProfile) {
@@ -1058,13 +1067,7 @@
     }
 
     videoFeed.onload = () => {
-      const now = performance.now();
-      frameCount++;
-      if (now - lastFrameTime >= 1000) {
-        fpsCounter.textContent = `FPS: ${frameCount}`;
-        frameCount = 0;
-        lastFrameTime = now;
-      }
+      // FPS is now calculated server-side and sent via telemetry
     };
 
     videoFeed.onerror = () => {

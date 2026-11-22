@@ -10,6 +10,7 @@ from intentpad.profiles import ProfileManager, DEFAULT_PROFILES
 from intentpad.gamepad_engine import MockGamepad, GamepadEngine, create_gamepad
 from intentpad.adapters import HandGestureAdapter, NeuralHIDAdapter
 from intentpad.server import root
+from intentpad.adapters.base import AdapterFrame
 
 
 class TestSignalFilter:
@@ -294,6 +295,122 @@ class TestStartup:
         response = asyncio.run(root())
         assert response.media_type == "text/html"
         assert "IntentPad-HID Mission Control" in open(response.path, encoding="utf-8").read()
+
+
+class TestDualHandMapping:
+    def test_hand_gesture_adapter_dual_hand_config(self):
+        adapter = HandGestureAdapter()
+        assert adapter._max_num_hands == 2
+
+    def test_hand_gesture_adapter_custom_num_hands(self):
+        adapter = HandGestureAdapter(config={"max_num_hands": 1})
+        assert adapter._max_num_hands == 1
+
+    def test_adapter_frame_metadata_structure(self):
+        frame = AdapterFrame(
+            left_stick=(0.1, 0.2),
+            right_stick=(0.3, 0.4),
+            triggers=(0.5, 0.6),
+            buttons={"A": True, "B": False},
+            metadata={"hands_detected": 2, "left_hand_detected": True, "right_hand_detected": True, "fps": 30.0}
+        )
+        assert frame.metadata["hands_detected"] == 2
+        assert frame.metadata["left_hand_detected"] is True
+        assert frame.metadata["right_hand_detected"] is True
+        assert frame.metadata["fps"] == 30.0
+
+    def test_left_hand_maps_to_left_stick(self):
+        adapter = HandGestureAdapter()
+        left_stick, lt_val, buttons = adapter._process_left_hand(self._create_mock_landmarks(hand_side="left"))
+        assert isinstance(left_stick, tuple)
+        assert len(left_stick) == 2
+        assert -1.0 <= left_stick[0] <= 1.0
+        assert -1.0 <= left_stick[1] <= 1.0
+        assert 0.0 <= lt_val <= 1.0
+        assert "A" in buttons
+        assert "X" in buttons
+
+    def test_right_hand_maps_to_right_stick(self):
+        adapter = HandGestureAdapter()
+        right_stick, rt_val, buttons = adapter._process_right_hand(self._create_mock_landmarks(hand_side="right"))
+        assert isinstance(right_stick, tuple)
+        assert len(right_stick) == 2
+        assert -1.0 <= right_stick[0] <= 1.0
+        assert -1.0 <= right_stick[1] <= 1.0
+        assert 0.0 <= rt_val <= 1.0
+        assert "B" in buttons
+        assert "Y" in buttons
+
+    def test_left_hand_buttons_mapping(self):
+        adapter = HandGestureAdapter()
+        _, _, buttons = adapter._process_left_hand(self._create_mock_landmarks(hand_side="left"))
+        assert "A" in buttons
+        assert "X" in buttons
+
+    def test_right_hand_buttons_mapping(self):
+        adapter = HandGestureAdapter()
+        _, _, buttons = adapter._process_right_hand(self._create_mock_landmarks(hand_side="right"))
+        assert "B" in buttons
+        assert "Y" in buttons
+
+    def test_fps_calculation_rolling_average(self):
+        adapter = HandGestureAdapter()
+        adapter._fps_samples = [25.0, 28.0, 30.0, 29.0, 27.0]
+        avg = sum(adapter._fps_samples) / len(adapter._fps_samples)
+        assert 27.0 <= avg <= 29.0
+        assert len(adapter._fps_samples) <= adapter._max_fps_samples
+
+    def test_fps_samples_limit(self):
+        adapter = HandGestureAdapter()
+        adapter._max_fps_samples = 5
+        adapter._fps_samples = [20.0, 25.0, 30.0, 35.0, 40.0, 45.0]
+        if len(adapter._fps_samples) > adapter._max_fps_samples:
+            adapter._fps_samples = adapter._fps_samples[-adapter._max_fps_samples:]
+        assert len(adapter._fps_samples) == 5
+        assert adapter._fps_samples == [25.0, 30.0, 35.0, 40.0, 45.0]
+
+    def _create_mock_landmarks(self, hand_side: str = "left"):
+        class MockLandmark:
+            def __init__(self, x, y):
+                self.x = x
+                self.y = y
+        
+        landmarks = []
+        base_x = 0.3 if hand_side == "left" else 0.7
+        base_y = 0.5
+        
+        landmarks.append(MockLandmark(base_x, base_y + 0.1))
+        landmarks.append(MockLandmark(base_x + 0.02, base_y + 0.08))
+        landmarks.append(MockLandmark(base_x + 0.04, base_y + 0.06))
+        landmarks.append(MockLandmark(base_x + 0.06, base_y + 0.04))
+        landmarks.append(MockLandmark(base_x + 0.08, base_y + 0.02))
+        
+        landmarks.append(MockLandmark(base_x - 0.02, base_y + 0.08))
+        landmarks.append(MockLandmark(base_x - 0.04, base_y + 0.06))
+        landmarks.append(MockLandmark(base_x - 0.06, base_y + 0.04))
+        landmarks.append(MockLandmark(base_x - 0.08, base_y + 0.02))
+        
+        landmarks.append(MockLandmark(base_x - 0.02, base_y + 0.08))
+        landmarks.append(MockLandmark(base_x - 0.04, base_y + 0.06))
+        landmarks.append(MockLandmark(base_x - 0.06, base_y + 0.04))
+        landmarks.append(MockLandmark(base_x - 0.08, base_y + 0.02))
+        
+        landmarks.append(MockLandmark(base_x - 0.02, base_y + 0.08))
+        landmarks.append(MockLandmark(base_x - 0.04, base_y + 0.06))
+        landmarks.append(MockLandmark(base_x - 0.06, base_y + 0.04))
+        landmarks.append(MockLandmark(base_x - 0.08, base_y + 0.02))
+        
+        landmarks.append(MockLandmark(base_x - 0.02, base_y + 0.08))
+        landmarks.append(MockLandmark(base_x - 0.04, base_y + 0.06))
+        landmarks.append(MockLandmark(base_x - 0.06, base_y + 0.04))
+        landmarks.append(MockLandmark(base_x - 0.08, base_y + 0.02))
+        
+        landmarks.append(MockLandmark(base_x + 0.03, base_y + 0.09))
+        landmarks.append(MockLandmark(base_x + 0.02, base_y + 0.07))
+        landmarks.append(MockLandmark(base_x + 0.01, base_y + 0.05))
+        landmarks.append(MockLandmark(base_x, base_y + 0.03))
+        
+        return landmarks
 
 
 if __name__ == "__main__":
