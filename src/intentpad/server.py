@@ -155,17 +155,25 @@ class IntentPadServer:
         left_hand_detected = False
         right_hand_detected = False
         fps = 0.0
+        left_stick = (0.0, 0.0)
+        right_stick = (0.0, 0.0)
+        triggers = (0.0, 0.0)
+        buttons = {}
         if self._last_frame and self._last_frame.metadata:
             hands_detected = self._last_frame.metadata.get("hands_detected", 0)
             hand_detected = hands_detected > 0
             left_hand_detected = self._last_frame.metadata.get("left_hand_detected", False)
             right_hand_detected = self._last_frame.metadata.get("right_hand_detected", False)
             fps = self._last_frame.metadata.get("fps", 0.0)
+            left_stick = self._last_frame.left_stick
+            right_stick = self._last_frame.right_stick
+            triggers = self._last_frame.triggers
+            buttons = self._last_frame.buttons
         return TelemetryData(
-            left_stick=self._get_stick_state("left"),
-            right_stick=self._get_stick_state("right"),
-            triggers=self._get_trigger_state(),
-            buttons=self._get_button_state(),
+            left_stick=left_stick,
+            right_stick=right_stick,
+            triggers=triggers,
+            buttons=buttons,
             active_profile=active_profile.name if active_profile else "",
             adapter=self._active_adapter_name,
             timestamp=time.time(),

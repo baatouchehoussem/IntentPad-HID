@@ -980,11 +980,29 @@
       showToast('Connection error', 'error');
     };
 
+    let lastTelemetryLog = 0;
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
+        const now = performance.now();
+        if (now - lastTelemetryLog > 1000) {
+          console.debug('[Telemetry]', {
+            hand_detected: data.hand_detected,
+            hands_detected: data.hands_detected,
+            left_hand: data.left_hand_detected,
+            right_hand: data.right_hand_detected,
+            left_stick: data.left_stick,
+            right_stick: data.right_stick,
+            triggers: data.triggers,
+            buttons: data.buttons,
+            fps: data.fps
+          });
+          lastTelemetryLog = now;
+        }
         updateTelemetry(data);
-      } catch (e) {}
+      } catch (e) {
+        console.error('Telemetry parse error:', e);
+      }
     };
 
     function updateTelemetry(data) {
