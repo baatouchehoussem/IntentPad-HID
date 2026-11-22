@@ -33,6 +33,8 @@ class TelemetryData(BaseModel):
     active_profile: str = ""
     adapter: str = ""
     timestamp: float = 0.0
+    hand_detected: bool = False
+    hands_detected: int = 0
 
 
 class ConfigUpdate(BaseModel):
@@ -40,6 +42,7 @@ class ConfigUpdate(BaseModel):
     adapter: Optional[str] = None
     smoothing: Optional[Dict[str, float]] = None
     deadzones: Optional[Dict[str, float]] = None
+    radial_deadzones: Optional[Dict[str, float]] = None
     sensitivity: Optional[Dict[str, float]] = None
     curves: Optional[Dict[str, str]] = None
 
@@ -58,6 +61,7 @@ class IntentPadServer:
         self._running = False
         self._telemetry_task: Optional[asyncio.Task] = None
         self._control_loop_task: Optional[asyncio.Task] = None
+        self._last_frame = None
 
     async def initialize(self) -> None:
         self._gamepad_engine.start()
@@ -106,6 +110,7 @@ class IntentPadServer:
             await asyncio.sleep(sleep_time)
 
     def _apply_frame(self, frame) -> None:
+        self._last_frame = frame
         lx, ly = self._signal_filter.process_vector(frame.left_stick[0], frame.left_stick[1], "lx", "ly")
         rx, ry = self._signal_filter.process_vector(frame.right_stick[0], frame.right_stick[1], "rx", "ry")
         lt = self._signal_filter.process_trigger("lt", frame.triggers[0])
@@ -142,6 +147,11 @@ class IntentPadServer:
 
     def _get_telemetry(self) -> TelemetryData:
         active_profile = self._profile_manager.get_active_profile()
+        hand_detected = False
+        hands_detected = 0
+        if self._last_frame and self._last_frame.metadata:
+            hands_detected = self._last_frame.metadata.get("hands_detected", 0)
+            hand_detected = hands_detected > 0
         return TelemetryData(
             left_stick=self._get_stick_state("left"),
             right_stick=self._get_stick_state("right"),
@@ -150,6 +160,8 @@ class IntentPadServer:
             active_profile=active_profile.name if active_profile else "",
             adapter=self._active_adapter_name,
             timestamp=time.time(),
+            hand_detected=hand_detected,
+            hands_detected=hands_detected,
         )
 
     def _get_stick_state(self, side: str) -> tuple[float, float]:
@@ -234,6 +246,10 @@ class IntentPadServer:
         if config.deadzones:
             for axis, dz in config.deadzones.items():
                 self._signal_filter.update_config(axis, deadzone=dz)
+
+        if config.radial_deadzones:
+            for axis, rdz in config.radial_deadzones.items():
+                self._signal_filter.update_config(axis, radial_deadzone=rdz)
 
         if config.sensitivity:
             for axis, sens in config.sensitivity.items():

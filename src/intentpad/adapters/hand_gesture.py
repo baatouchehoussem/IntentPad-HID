@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import logging
 import time
+import threading
 import urllib.request
 from pathlib import Path
 from typing import Optional, Tuple, Dict, Any
@@ -26,17 +27,29 @@ class HandGestureAdapter(InputAdapter):
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         config = config or {}
         super().__init__(config)
-        self._cap = None
-        self._landmarker = None
         self._frame_width = config.get("width", 640)
         self._frame_height = config.get("height", 480)
         self._fps = config.get("fps", 30)
         self._min_detection_confidence = config.get("min_detection_confidence", 0.6)
         self._min_tracking_confidence = config.get("min_tracking_confidence", 0.5)
-        self._max_num_hands = config.get("max_num_hands", 1)
-        self._last_frame_time = 0
-        self._frame_interval = 1.0 / self._fps
+        self._max_num_hands = config.get("max_num_hands", 2)
+        
+        self._cap = None
+        self._landmarker = None
+        self._running = False
+        self._capture_thread: Optional[threading.Thread] = None
+        
+        self._latest_frame: Optional[AdapterFrame] = None
+        self._latest_frame_lock = threading.Lock()
+        self._latest_annotated_frame: Optional[np.ndarray] = None
+        self._latest_annotated_lock = threading.Lock()
+        
         self._frame_timestamp_ms = 0
+        self._frame_interval_ms = 1000.0 / self._fps
+        
+        self._fps_counter = 0
+        self._fps_start_time = time.time()
+        self._current_fps = 0.0
 
     def _ensure_model(self) -> None:
         if not MODEL_PATH.exists():
@@ -70,16 +83,21 @@ class HandGestureAdapter(InputAdapter):
         self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._frame_width)
         self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._frame_height)
         self._cap.set(cv2.CAP_PROP_FPS, self._fps)
+        self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
         if not self._cap.isOpened():
             raise RuntimeError("Failed to open webcam")
 
         self._running = True
         self._frame_timestamp_ms = 0
-        logger.info("HandGestureAdapter started with MediaPipe Tasks API")
+        self._capture_thread = threading.Thread(target=self._capture_loop, daemon=True)
+        self._capture_thread.start()
+        logger.info("HandGestureAdapter started with MediaPipe Tasks API (background capture)")
 
     def stop(self) -> None:
         self._running = False
+        if self._capture_thread and self._capture_thread.is_alive():
+            self._capture_thread.join(timeout=2.0)
         if self._cap:
             self._cap.release()
             self._cap = None
@@ -88,56 +106,99 @@ class HandGestureAdapter(InputAdapter):
             self._landmarker = None
         logger.info("HandGestureAdapter stopped")
 
-    def read_frame(self) -> AdapterFrame:
-        if not self._running or not self._cap or not self._landmarker:
-            return AdapterFrame()
-
-        current_time = time.time()
-        if current_time - self._last_frame_time < self._frame_interval:
-            return AdapterFrame()
-
-        ret, frame = self._cap.read()
-        if not ret:
-            return AdapterFrame()
-
-        self._last_frame_time = current_time
-        frame = cv2.flip(frame, 1)
-        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
+    def _capture_loop(self) -> None:
         import mediapipe as mp
-        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
-        self._frame_timestamp_ms += int(self._frame_interval * 1000)
-        result = self._landmarker.detect_for_video(mp_image, self._frame_timestamp_ms)
+        
+        while self._running:
+            loop_start = time.time()
+            
+            if not self._cap or not self._cap.isOpened():
+                time.sleep(0.01)
+                continue
+                
+            ret, frame = self._cap.read()
+            if not ret:
+                time.sleep(0.01)
+                continue
+            
+            frame = cv2.flip(frame, 1)
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            
+            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
+            self._frame_timestamp_ms += int(self._frame_interval_ms)
+            result = self._landmarker.detect_for_video(mp_image, self._frame_timestamp_ms)
+            
+            left_stick = (0.0, 0.0)
+            right_stick = (0.0, 0.0)
+            triggers = (0.0, 0.0)
+            buttons = {}
+            hands_detected = len(result.hand_landmarks)
+            
+            if hands_detected > 0:
+                landmarks = result.hand_landmarks[0]
+                self._draw_landmarks(frame, landmarks)
+                left_stick, right_stick, triggers, buttons = self._process_gestures(landmarks)
+            else:
+                self._draw_landmarks(frame, None)
+            
+            adapter_frame = AdapterFrame(
+                left_stick=left_stick,
+                right_stick=right_stick,
+                triggers=triggers,
+                buttons=buttons,
+                annotated_frame=frame.copy(),
+                metadata={
+                    "hands_detected": hands_detected,
+                    "fps": self._current_fps
+                }
+            )
+            
+            with self._latest_frame_lock:
+                self._latest_frame = adapter_frame
+            
+            with self._latest_annotated_lock:
+                self._latest_annotated_frame = frame.copy()
+            
+            self._fps_counter += 1
+            elapsed = time.time() - self._fps_start_time
+            if elapsed >= 1.0:
+                self._current_fps = self._fps_counter / elapsed
+                self._fps_counter = 0
+                self._fps_start_time = time.time()
+            
+            elapsed_ms = (time.time() - loop_start) * 1000
+            sleep_ms = max(0, self._frame_interval_ms - elapsed_ms)
+            if sleep_ms > 0:
+                time.sleep(sleep_ms / 1000.0)
 
-        left_stick = (0.0, 0.0)
-        right_stick = (0.0, 0.0)
-        triggers = (0.0, 0.0)
-        buttons = {}
+    def read_frame(self) -> AdapterFrame:
+        with self._latest_frame_lock:
+            if self._latest_frame is not None:
+                return self._latest_frame
+        return AdapterFrame()
 
-        if result.hand_landmarks:
-            landmarks = result.hand_landmarks[0]
-            self._draw_landmarks(frame, landmarks)
-            left_stick, right_stick, triggers, buttons = self._process_gestures(landmarks)
-
-        return AdapterFrame(
-            left_stick=left_stick,
-            right_stick=right_stick,
-            triggers=triggers,
-            buttons=buttons,
-            annotated_frame=frame,
-            metadata={"hands_detected": len(result.hand_landmarks)}
-        )
+    def get_mjpeg_frame(self) -> Optional[bytes]:
+        with self._latest_annotated_lock:
+            if self._latest_annotated_frame is not None:
+                ret, buffer = cv2.imencode('.jpg', self._latest_annotated_frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+                if ret:
+                    return buffer.tobytes()
+        return None
 
     def _draw_landmarks(self, frame: np.ndarray, landmarks) -> None:
         h, w = frame.shape[:2]
-        points = [(int(lm.x * w), int(lm.y * h)) for lm in landmarks]
+        if landmarks:
+            points = [(int(lm.x * w), int(lm.y * h)) for lm in landmarks]
 
-        for start, end in HAND_CONNECTIONS:
-            if start < len(points) and end < len(points):
-                cv2.line(frame, points[start], points[end], (0, 255, 0), 2)
+            for start, end in HAND_CONNECTIONS:
+                if start < len(points) and end < len(points):
+                    cv2.line(frame, points[start], points[end], (0, 255, 0), 2)
 
-        for x, y in points:
-            cv2.circle(frame, (x, y), 4, (0, 0, 255), -1)
+            for x, y in points:
+                cv2.circle(frame, (x, y), 4, (0, 0, 255), -1)
+        
+        fps_text = f"FPS: {self._current_fps:.1f}"
+        cv2.putText(frame, fps_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
     def _process_gestures(self, landmarks) -> Tuple[Tuple[float, float], Tuple[float, float], Tuple[float, float], Dict[str, bool]]:
         wrist = landmarks[0]
@@ -214,11 +275,3 @@ class HandGestureAdapter(InputAdapter):
                 extended += 1
         thumb_extended = landmarks[4].x > landmarks[3].x
         return (extended + (1 if thumb_extended else 0)) / 5.0
-
-    def get_mjpeg_frame(self) -> Optional[bytes]:
-        frame_data = self.read_frame()
-        if frame_data.annotated_frame is not None:
-            ret, buffer = cv2.imencode('.jpg', frame_data.annotated_frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
-            if ret:
-                return buffer.tobytes()
-        return None

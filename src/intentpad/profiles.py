@@ -14,10 +14,10 @@ DEFAULT_PROFILES = {
         name="gta_driving",
         description="Optimized for GTA driving - smooth steering, responsive triggers",
         axis_configs={
-            "lx": AxisConfig(deadzone=0.15, sensitivity=1.0, curve=CurveType.EXPONENTIAL, ema_alpha=0.25),
-            "ly": AxisConfig(deadzone=0.15, sensitivity=0.9, curve=CurveType.EXPONENTIAL, ema_alpha=0.25),
-            "rx": AxisConfig(deadzone=0.2, sensitivity=0.8, curve=CurveType.LINEAR, ema_alpha=0.3),
-            "ry": AxisConfig(deadzone=0.2, sensitivity=0.8, curve=CurveType.LINEAR, ema_alpha=0.3),
+            "lx": AxisConfig(deadzone=0.15, sensitivity=1.0, curve=CurveType.EXPONENTIAL, ema_alpha=0.25, radial_deadzone=0.1),
+            "ly": AxisConfig(deadzone=0.15, sensitivity=0.9, curve=CurveType.EXPONENTIAL, ema_alpha=0.25, radial_deadzone=0.1),
+            "rx": AxisConfig(deadzone=0.2, sensitivity=0.8, curve=CurveType.LINEAR, ema_alpha=0.3, radial_deadzone=0.1),
+            "ry": AxisConfig(deadzone=0.2, sensitivity=0.8, curve=CurveType.LINEAR, ema_alpha=0.3, radial_deadzone=0.1),
         },
         trigger_configs={
             "lt": TriggerConfig(deadzone=0.05, sensitivity=1.0, curve=CurveType.LINEAR, ema_alpha=0.2),
@@ -34,10 +34,10 @@ DEFAULT_PROFILES = {
         name="fps_tactical",
         description="Optimized for FPS - precise aim, quick trigger response",
         axis_configs={
-            "lx": AxisConfig(deadzone=0.1, sensitivity=1.0, curve=CurveType.LINEAR, ema_alpha=0.35),
-            "ly": AxisConfig(deadzone=0.1, sensitivity=1.0, curve=CurveType.LINEAR, ema_alpha=0.35),
-            "rx": AxisConfig(deadzone=0.05, sensitivity=1.2, curve=CurveType.EXPONENTIAL, ema_alpha=0.15),
-            "ry": AxisConfig(deadzone=0.05, sensitivity=1.2, curve=CurveType.EXPONENTIAL, ema_alpha=0.15),
+            "lx": AxisConfig(deadzone=0.1, sensitivity=1.0, curve=CurveType.LINEAR, ema_alpha=0.35, radial_deadzone=0.05),
+            "ly": AxisConfig(deadzone=0.1, sensitivity=1.0, curve=CurveType.LINEAR, ema_alpha=0.35, radial_deadzone=0.05),
+            "rx": AxisConfig(deadzone=0.05, sensitivity=1.2, curve=CurveType.EXPONENTIAL, ema_alpha=0.15, radial_deadzone=0.05),
+            "ry": AxisConfig(deadzone=0.05, sensitivity=1.2, curve=CurveType.EXPONENTIAL, ema_alpha=0.15, radial_deadzone=0.05),
         },
         trigger_configs={
             "lt": TriggerConfig(deadzone=0.02, sensitivity=1.0, curve=CurveType.LINEAR, ema_alpha=0.1),
@@ -54,10 +54,10 @@ DEFAULT_PROFILES = {
         name="desktop_assistive",
         description="Assistive desktop control - gentle curves, large deadzones for stability",
         axis_configs={
-            "lx": AxisConfig(deadzone=0.25, sensitivity=0.6, curve=CurveType.LOGARITHMIC, ema_alpha=0.4),
-            "ly": AxisConfig(deadzone=0.25, sensitivity=0.6, curve=CurveType.LOGARITHMIC, ema_alpha=0.4),
-            "rx": AxisConfig(deadzone=0.3, sensitivity=0.5, curve=CurveType.LINEAR, ema_alpha=0.5),
-            "ry": AxisConfig(deadzone=0.3, sensitivity=0.5, curve=CurveType.LINEAR, ema_alpha=0.5),
+            "lx": AxisConfig(deadzone=0.25, sensitivity=0.6, curve=CurveType.LOGARITHMIC, ema_alpha=0.4, radial_deadzone=0.2),
+            "ly": AxisConfig(deadzone=0.25, sensitivity=0.6, curve=CurveType.LOGARITHMIC, ema_alpha=0.4, radial_deadzone=0.2),
+            "rx": AxisConfig(deadzone=0.3, sensitivity=0.5, curve=CurveType.LINEAR, ema_alpha=0.5, radial_deadzone=0.2),
+            "ry": AxisConfig(deadzone=0.3, sensitivity=0.5, curve=CurveType.LINEAR, ema_alpha=0.5, radial_deadzone=0.2),
         },
         trigger_configs={
             "lt": TriggerConfig(deadzone=0.1, sensitivity=0.8, curve=CurveType.LINEAR, ema_alpha=0.3),
@@ -106,6 +106,7 @@ class ProfileManager:
                 curve=CurveType(v.get("curve", "linear")),
                 invert=v.get("invert", False),
                 ema_alpha=v.get("ema_alpha", 0.3),
+                radial_deadzone=v.get("radial_deadzone", 0.0),
             )
         trigger_configs = {}
         for k, v in data.get("trigger_configs", {}).items():
@@ -167,6 +168,7 @@ class ProfileManager:
                 "curve": v.curve.value,
                 "invert": v.invert,
                 "ema_alpha": v.ema_alpha,
+                "radial_deadzone": getattr(v, 'radial_deadzone', 0.0),
             } for k, v in profile.axis_configs.items()},
             "trigger_configs": {k: {
                 "deadzone": v.deadzone,

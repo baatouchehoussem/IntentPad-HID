@@ -18,6 +18,7 @@ class AxisConfig:
     curve: CurveType = CurveType.LINEAR
     invert: bool = False
     ema_alpha: float = 0.3
+    radial_deadzone: float = 0.0
 
 
 @dataclass
@@ -53,6 +54,13 @@ class SignalFilter:
             return 0.0
         sign = 1.0 if value > 0 else -1.0
         return sign * (abs(value) - deadzone) / (1.0 - deadzone)
+
+    def _apply_radial_deadzone(self, x: float, y: float, radial_deadzone: float) -> Tuple[float, float]:
+        magnitude = math.hypot(x, y)
+        if magnitude <= radial_deadzone:
+            return (0.0, 0.0)
+        scale = (magnitude - radial_deadzone) / (magnitude * (1.0 - radial_deadzone))
+        return (x * scale, y * scale)
 
     def _apply_curve(self, value: float, curve: CurveType) -> float:
         v = abs(value)
@@ -97,6 +105,15 @@ class SignalFilter:
         return self._ema(trigger, v, config.ema_alpha)
 
     def process_vector(self, x: float, y: float, axis_x: str, axis_y: str) -> Tuple[float, float]:
+        config_x = self.axis_configs.get(axis_x)
+        config_y = self.axis_configs.get(axis_y)
+        radial_dz = 0.0
+        if config_x and hasattr(config_x, 'radial_deadzone'):
+            radial_dz = max(radial_dz, config_x.radial_deadzone)
+        if config_y and hasattr(config_y, 'radial_deadzone'):
+            radial_dz = max(radial_dz, config_y.radial_deadzone)
+        if radial_dz > 0.0:
+            x, y = self._apply_radial_deadzone(x, y, radial_dz)
         return (self.process_axis(axis_x, x), self.process_axis(axis_y, y))
 
     def reset(self) -> None:
@@ -121,6 +138,7 @@ class SignalFilter:
                 "curve": v.curve.value,
                 "invert": v.invert,
                 "ema_alpha": v.ema_alpha,
+                "radial_deadzone": getattr(v, 'radial_deadzone', 0.0),
             } for k, v in self.axis_configs.items()},
             "triggers": {k: {
                 "deadzone": v.deadzone,

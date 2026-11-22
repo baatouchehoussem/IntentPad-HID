@@ -725,6 +725,10 @@
             </div>
           </div>
           <div class="control-group">
+            <div class="control-label"><span>Left Stick Radial Deadzone</span><span class="control-value" id="lsRadialDzVal">0.1</span></div>
+            <input type="range" id="lsRadialDz" min="0" max="0.5" step="0.01" value="0.1">
+          </div>
+          <div class="control-group">
             <div class="control-label"><span>Right Stick Deadzone</span><span class="control-value" id="rsDeadzoneVal">0.05</span></div>
             <input type="range" id="rsDeadzone" min="0" max="0.5" step="0.01" value="0.05">
           </div>
@@ -746,6 +750,10 @@
                 <option value="s_curve">S-Curve</option>
               </select>
             </div>
+          </div>
+          <div class="control-group">
+            <div class="control-label"><span>Right Stick Radial Deadzone</span><span class="control-value" id="rsRadialDzVal">0.1</span></div>
+            <input type="range" id="rsRadialDz" min="0" max="0.5" step="0.01" value="0.1">
           </div>
           <div class="control-group">
             <div class="control-label"><span>Trigger Deadzone</span><span class="control-value" id="trDeadzoneVal">0.05</span></div>
@@ -812,10 +820,12 @@
       lsSens: document.getElementById('lsSens'),
       lsEma: document.getElementById('lsEma'),
       lsCurve: document.getElementById('lsCurve'),
+      lsRadialDz: document.getElementById('lsRadialDz'),
       rsDeadzone: document.getElementById('rsDeadzone'),
       rsSens: document.getElementById('rsSens'),
       rsEma: document.getElementById('rsEma'),
       rsCurve: document.getElementById('rsCurve'),
+      rsRadialDz: document.getElementById('rsRadialDz'),
       trDeadzone: document.getElementById('trDeadzone'),
       trSens: document.getElementById('trSens'),
     };
@@ -824,9 +834,11 @@
       lsDeadzoneVal: document.getElementById('lsDeadzoneVal'),
       lsSensVal: document.getElementById('lsSensVal'),
       lsEmaVal: document.getElementById('lsEmaVal'),
+      lsRadialDzVal: document.getElementById('lsRadialDzVal'),
       rsDeadzoneVal: document.getElementById('rsDeadzoneVal'),
       rsSensVal: document.getElementById('rsSensVal'),
       rsEmaVal: document.getElementById('rsEmaVal'),
+      rsRadialDzVal: document.getElementById('rsRadialDzVal'),
       trDeadzoneVal: document.getElementById('trDeadzoneVal'),
       trSensVal: document.getElementById('trSensVal'),
     };
@@ -885,6 +897,12 @@
             ry: parseFloat(controls.rsDeadzone.value),
             lt: parseFloat(controls.trDeadzone.value),
             rt: parseFloat(controls.trDeadzone.value),
+          },
+          radial_deadzones: {
+            lx: parseFloat(controls.lsRadialDz.value),
+            ly: parseFloat(controls.lsRadialDz.value),
+            rx: parseFloat(controls.rsRadialDz.value),
+            ry: parseFloat(controls.rsRadialDz.value),
           },
           sensitivity: {
             lx: parseFloat(controls.lsSens.value),
@@ -976,6 +994,21 @@
       updateTrigger(rtFill, rtValue, data.triggers[1]);
 
       Object.entries(data.buttons).forEach(([btn, pressed]) => updateButton(btn, pressed));
+
+      if (data.hand_detected !== undefined) {
+        handStatus.textContent = data.hand_detected 
+          ? `Hand detected (${data.hands_detected || 1})` 
+          : 'No hand detected';
+        handStatus.className = data.hand_detected ? 'hand-status detected' : 'hand-status none';
+      }
+
+      if (!data.hand_detected) {
+        updateStick(leftStickKnob, leftStickCoords, 0, 0);
+        updateStick(rightStickKnob, rightStickCoords, 0, 0);
+        updateTrigger(ltFill, ltValue, 0);
+        updateTrigger(rtFill, rtValue, 0);
+        Object.keys(data.buttons).forEach(btn => updateButton(btn, false));
+      }
 
       if (data.active_profile !== currentProfile) {
         currentProfile = data.active_profile;
