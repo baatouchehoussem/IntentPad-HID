@@ -82,14 +82,23 @@ class HandGestureAdapter(InputAdapter):
         )
         self._landmarker = vision.HandLandmarker.create_from_options(options)
 
-        self._cap = cv2.VideoCapture(0)
+        import platform
+        backend = cv2.CAP_DSHOW if platform.system().lower() == "windows" else cv2.CAP_V4L2
+        self._cap = cv2.VideoCapture(0, backend)
         self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._frame_width)
         self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._frame_height)
         self._cap.set(cv2.CAP_PROP_FPS, self._fps)
         self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
         if not self._cap.isOpened():
-            raise RuntimeError("Failed to open webcam")
+            self._cap.release()
+            self._cap = cv2.VideoCapture(0)
+            self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._frame_width)
+            self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._frame_height)
+            self._cap.set(cv2.CAP_PROP_FPS, self._fps)
+            self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            if not self._cap.isOpened():
+                raise RuntimeError("Failed to open webcam")
 
         self._running = True
         self._frame_timestamp_ms = 0
