@@ -61,6 +61,38 @@ class HandGestureAdapter(InputAdapter):
             urllib.request.urlretrieve(MODEL_URL, MODEL_PATH)
             logger.info(f"Model downloaded to {MODEL_PATH}")
 
+    def _try_open_camera(self) -> Optional[cv2.VideoCapture]:
+        import platform
+        system = platform.system().lower()
+        
+        backends = []
+        if system == "windows":
+            backends = [cv2.CAP_DSHOW, cv2.CAP_MSMF, cv2.CAP_ANY]
+        else:
+            backends = [cv2.CAP_V4L2, cv2.CAP_ANY]
+        
+        for backend in backends:
+            logger.info(f"Trying camera backend: {backend}")
+            cap = cv2.VideoCapture(0, backend)
+            if cap.isOpened():
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._frame_width)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._frame_height)
+                cap.set(cv2.CAP_PROP_FPS, self._fps)
+                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                
+                for _ in range(5):
+                    ret, frame = cap.read()
+                    if ret and frame is not None:
+                        logger.info(f"Camera opened successfully with backend {backend}")
+                        return cap
+                    time.sleep(0.1)
+                
+                cap.release()
+            else:
+                logger.warning(f"Backend {backend} failed to open camera")
+        
+        return None
+
     def start(self) -> None:
         try:
             from mediapipe.tasks import python
@@ -82,23 +114,9 @@ class HandGestureAdapter(InputAdapter):
         )
         self._landmarker = vision.HandLandmarker.create_from_options(options)
 
-        import platform
-        backend = cv2.CAP_DSHOW if platform.system().lower() == "windows" else cv2.CAP_V4L2
-        self._cap = cv2.VideoCapture(0, backend)
-        self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._frame_width)
-        self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._frame_height)
-        self._cap.set(cv2.CAP_PROP_FPS, self._fps)
-        self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-
-        if not self._cap.isOpened():
-            self._cap.release()
-            self._cap = cv2.VideoCapture(0)
-            self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._frame_width)
-            self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._frame_height)
-            self._cap.set(cv2.CAP_PROP_FPS, self._fps)
-            self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-            if not self._cap.isOpened():
-                raise RuntimeError("Failed to open webcam")
+        self._cap = self._try_open_camera()
+        if self._cap is None:
+            raise RuntimeError("Failed to open webcam with any backend")
 
         self._running = True
         self._frame_timestamp_ms = 0
