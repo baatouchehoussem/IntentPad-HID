@@ -1,5 +1,6 @@
 from .gamepad_engine import GamepadEngine, create_gamepad, BaseGamepad, MockGamepad
-from .pipeline import SignalFilter, Profile, AxisConfig, TriggerConfig, CurveType, ButtonMap
+from .pipeline import SignalFilter as PipelineSignalFilter, Profile, AxisConfig, TriggerConfig, CurveType, ButtonMap
+from .signal_filter import SignalFilter, SignalFilterConfig
 from .profiles import ProfileManager, DEFAULT_PROFILES
 from .adapters import InputAdapter, AdapterFrame, HandGestureAdapter, NeuralHIDAdapter
 from .server import IntentPadServer, run_server
@@ -12,6 +13,7 @@ __all__ = [
     "BaseGamepad",
     "MockGamepad",
     "SignalFilter",
+    "SignalFilterConfig",
     "Profile",
     "AxisConfig",
     "TriggerConfig",
